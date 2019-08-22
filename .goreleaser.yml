@@ -1,26 +1,36 @@
 #
 # .goreleaser.yml
 # Build customization
+env:
+  - GO111MODULE=on
+
 builds:
-  - main: ./gobgp/
+  - id: gobgp
+    main: ./cmd/gobgp/
     binary: gobgp
+    ldflags: -s -extldflags "-static"
     goos:
       - linux
     goarch:
       - amd64
       - 386
       - arm
+      - arm64
 
-  - main: ./gobgpd/
+  - id: gobgpd
+    main: ./cmd/gobgpd/
     binary: gobgpd
+    ldflags: -s -extldflags "-static"
     goos:
       - linux
     goarch:
       - amd64
       - 386
       - arm
+      - arm64
 
-archive:
-  files:
-    - LICENSE
-    - README.md
+archives:
+  - id: foo
+    files:
+      - LICENSE
+      - README.md

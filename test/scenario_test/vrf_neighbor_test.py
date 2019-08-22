@@ -13,19 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
 
 from lib import base
-from lib.base import BGP_FSM_ESTABLISHED
+from lib.base import BGP_FSM_ESTABLISHED, local
 from lib.gobgp import GoBGPContainer
 
 
@@ -118,28 +117,28 @@ class GoBGPTestBase(unittest.TestCase):
         time.sleep(1)
 
         dst = self.g2.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g4.asn, self.g1.asn] == path['aspath'])
+        self.assertEqual([self.g4.asn, self.g1.asn], path['aspath'])
 
         dst = self.g3.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 0)
+        self.assertEqual(len(dst), 0)
 
         dst = self.g4.get_global_rib(rf='vpnv4')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g1.asn] == path['aspath'])
+        self.assertEqual([self.g1.asn], path['aspath'])
 
         dst = self.g6.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g5.asn, self.g4.asn, self.g1.asn] == path['aspath'])
+        self.assertEqual([self.g5.asn, self.g4.asn, self.g1.asn], path['aspath'])
 
         dst = self.g7.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 0)
+        self.assertEqual(len(dst), 0)
 
     def test_03_inject_from_vrf_blue(self):
         self.g3.local('gobgp global rib add 10.0.0.0/24')
@@ -147,31 +146,31 @@ class GoBGPTestBase(unittest.TestCase):
         time.sleep(1)
 
         dst = self.g2.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g4.asn, self.g1.asn] == path['aspath'])
+        self.assertEqual([self.g4.asn, self.g1.asn], path['aspath'])
 
         dst = self.g4.get_global_rib(rf='vpnv4')
-        self.assertTrue(len(dst) == 2)
+        self.assertEqual(len(dst), 2)
 
         dst = self.g6.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g5.asn, self.g4.asn, self.g1.asn] == path['aspath'])
+        self.assertEqual([self.g5.asn, self.g4.asn, self.g1.asn], path['aspath'])
 
         dst = self.g7.get_global_rib('10.0.0.0/24')
-        self.assertTrue(len(dst) == 1)
-        self.assertTrue(len(dst[0]['paths']) == 1)
+        self.assertEqual(len(dst), 1)
+        self.assertEqual(len(dst[0]['paths']), 1)
         path = dst[0]['paths'][0]
-        self.assertTrue([self.g5.asn, self.g4.asn, self.g3.asn] == path['aspath'])
+        self.assertEqual([self.g5.asn, self.g4.asn, self.g3.asn], path['aspath'])
 
 
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

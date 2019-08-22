@@ -13,20 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
 
 import os
 import time
 import itertools
 
-from fabric.api import local, lcd
-from fabric import colors
-from fabric.state import env, output
+from invoke import run
+
+import textwrap
+from colored import fg, attr
+
 try:
     from docker import Client
 except ImportError:
     from docker import APIClient as Client
 import netaddr
+
 
 DEFAULT_TEST_PREFIX = ''
 DEFAULT_TEST_BASE_DIR = '/tmp/gobgp'
@@ -48,8 +50,53 @@ BGP_ATTR_TYPE_CLUSTER_LIST = 10
 BGP_ATTR_TYPE_MP_REACH_NLRI = 14
 BGP_ATTR_TYPE_EXTENDED_COMMUNITIES = 16
 
-env.abort_exception = RuntimeError
-output.stderr = False
+GRACEFUL_RESTART_TIME = 30
+LONG_LIVED_GRACEFUL_RESTART_TIME = 30
+
+FLOWSPEC_NAME_TO_TYPE = {
+    "destination": 1,
+    "source": 2,
+    "protocol": 3,
+    "port": 4,
+    "destination-port": 5,
+    "source-port": 6,
+    "icmp-type": 7,
+    "icmp-code": 8,
+    "tcp-flags": 9,
+    "packet-length": 10,
+    "dscp": 11,
+    "fragment": 12,
+    "label": 13,
+    "ether-type": 14,
+    "source-mac": 15,
+    "destination-mac": 16,
+    "llc-dsap": 17,
+    "llc-ssap": 18,
+    "llc-control": 19,
+    "snap": 20,
+    "vid": 21,
+    "cos": 22,
+    "inner-vid": 23,
+    "inner-cos": 24,
+}
+
+# with this label, we can do filtering in `docker ps` and `docker network prune`
+TEST_CONTAINER_LABEL = 'gobgp-test'
+TEST_NETWORK_LABEL = TEST_CONTAINER_LABEL
+
+
+def local(s, capture=False):
+    print('[localhost] local:', s)
+    _env = {'NOSE_NOLOGCAPTURE': '1' if capture else '0'}
+    return run(s, hide=True, env=_env).stdout.strip()
+
+
+def yellow(s):
+    return fg('yellow') + str(s) + attr('reset')
+
+
+def indent(s):
+    return textwrap.indent(str(s), ' '*4, lambda line: True)
 
 
 def community_str(i):
@@ -92,6 +139,18 @@ def try_several_times(f, t=3, s=1):
     raise e
 
 
+def assert_several_times(f, t=30, s=1):
+    e = AssertionError
+    for _ in range(t):
+        try:
+            f()
+        except AssertionError as e:
+            time.sleep(s)
+        else:
+            return
+    raise e
+
+
 def get_bridges():
     return try_several_times(lambda: local("docker network ls | awk 'NR > 1{print $2}'", capture=True)).split('\n')
 
@@ -110,28 +169,6 @@ class CmdBuffer(list):
 
     def __str__(self):
         return self.delim.join(self)
-
-
-def make_gobgp_ctn(tag='gobgp', local_gobgp_path='', from_image='osrg/quagga'):
-    if local_gobgp_path == '':
-        local_gobgp_path = os.getcwd()
-
-    c = CmdBuffer()
-    c << 'FROM {0}'.format(from_image)
-    c << 'RUN go get -u github.com/golang/dep/cmd/dep'
-    c << 'RUN mkdir -p /go/src/github.com/osrg/'
-    c << 'ADD gobgp /go/src/github.com/osrg/gobgp/'
-    c << 'RUN cd /go/src/github.com/osrg/gobgp && dep ensure && go install ./gobgpd ./gobgp'
-
-    rindex = local_gobgp_path.rindex('gobgp')
-    if rindex < 0:
-        raise Exception('{0} seems not gobgp dir'.format(local_gobgp_path))
-
-    workdir = local_gobgp_path[:rindex]
-    with lcd(workdir):
-        local('echo \'{0}\' > Dockerfile'.format(str(c)))
-        local('docker build -t {0} .'.format(tag))
-        local('rm Dockerfile')
 
 
 class Bridge(object):
@@ -156,7 +193,7 @@ class Bridge(object):
             v6 = ''
             if self.subnet.version == 6:
                 v6 = '--ipv6'
-            self.id = local('docker network create --driver bridge {0} --subnet {1} {2}'.format(v6, subnet, self.name), capture=True)
+            self.id = local('docker network create --driver bridge {0} --subnet {1} --label {2} {3}'.format(v6, subnet, TEST_NETWORK_LABEL, self.name), capture=True)
         try_several_times(f)
 
         self.self_ip = self_ip
@@ -165,20 +202,39 @@ class Bridge(object):
             try_several_times(lambda: local("ip addr add {0} dev {1}".format(self.ip_addr, self.name)))
         self.ctns = []
 
+        # Note: Here removes routes from the container host to prevent traffic
+        # from going through the container host's routing table.
+        if with_ip:
+            local('ip route del {0}; echo $?'.format(subnet),
+                  capture=True)
+            # When IPv6, 2 routes will be installed to the container host's
+            # routing table.
+            if self.subnet.version == 6:
+                local('ip -6 route del {0}; echo $?'.format(subnet),
+                      capture=True)
+
     def next_ip_address(self):
-        return "{0}/{1}".format(self._ip_generator.next(),
+        return "{0}/{1}".format(next(self._ip_generator),
                                 self.subnet.prefixlen)
 
-    def addif(self, ctn):
+    def addif(self, ctn, ip_addr=''):
         _name = ctn.next_if_name()
         self.ctns.append(ctn)
-        local("docker network connect {0} {1}".format(self.name, ctn.docker_name()))
-        i = [x for x in Client(timeout=60, version='auto').inspect_network(self.id)['Containers'].values() if x['Name'] == ctn.docker_name()][0]
+        ip = ''
+        if not ip_addr == '':
+            ip = '--ip {0}'.format(ip_addr)
+            if self.subnet.version == 6:
+                ip = '--ip6 {0}'.format(ip_addr)
+        local("docker network connect {0} {1} {2}".format(ip, self.name, ctn.docker_name()))
+        i = [x for x in list(Client(timeout=60, version='auto').inspect_network(self.id)['Containers'].values()) if x['Name'] == ctn.docker_name()][0]
         if self.subnet.version == 4:
+            eth = 'eth{0}'.format(len(ctn.ip_addrs))
             addr = i['IPv4Address']
+            ctn.ip_addrs.append((eth, addr, self.name))
         else:
+            eth = 'eth{0}'.format(len(ctn.ip6_addrs))
             addr = i['IPv6Address']
-        ctn.ip_addrs.append(('eth1', addr, self.name))
+            ctn.ip6_addrs.append((eth, addr, self.name))
 
     def delete(self):
         try_several_times(lambda: local("docker network rm {0}".format(self.name)))
@@ -200,7 +256,7 @@ class Container(object):
 
     def docker_name(self):
         if TEST_PREFIX == DEFAULT_TEST_PREFIX:
-            return self.name
+            return '{0}'.format(self.name)
         return '{0}_{1}'.format(TEST_PREFIX, self.name)
 
     def next_if_name(self):
@@ -213,7 +269,7 @@ class Container(object):
         c << "docker run --privileged=true"
         for sv in self.shared_volumes:
             c << "-v {0}:{1}".format(sv[0], sv[1])
-        c << "--name {0} -id {1}".format(self.docker_name(), self.image)
+        c << "--name {0} -l {1} -id {2}".format(self.docker_name(), TEST_CONTAINER_LABEL, self.image)
         self.id = try_several_times(lambda: local(str(c), capture=True))
         self.is_running = True
         self.local("ip li set up dev lo")
@@ -238,7 +294,7 @@ class Container(object):
 
     def pipework(self, bridge, ip_addr, intf_name=""):
         if not self.is_running:
-            print colors.yellow('call run() before pipeworking')
+            print(yellow('call run() before pipeworking'))
             return
         c = CmdBuffer(' ')
         c << "pipework {0}".format(bridge.name)
@@ -394,14 +450,24 @@ class BGPContainer(Container):
     def log(self):
         return local('cat {0}/*.log'.format(self.config_dir), capture=True)
 
+    def _extract_routes(self, families):
+        routes = {}
+        for prefix, paths in list(self.routes.items()):
+            if paths and paths[0]['rf'] in families:
+                routes[prefix] = paths
+        return routes
+
     def add_route(self, route, rf='ipv4', attribute=None, aspath=None,
                   community=None, med=None, extendedcommunity=None,
                   nexthop=None, matchs=None, thens=None,
                   local_pref=None, identifier=None, reload_config=True):
         if route not in self.routes:
             self.routes[route] = []
+        prefix = route
+        if 'flowspec' in rf:
+            prefix = ' '.join(['match'] + matchs)
         self.routes[route].append({
-            'prefix': route,
+            'prefix': prefix,
             'rf': rf,
             'attr': attribute,
             'next-hop': nexthop,
@@ -462,7 +528,7 @@ class BGPContainer(Container):
     def get_neighbor_state(self, peer_id):
         raise Exception('implement get_neighbor() method')
 
-    def get_reachablily(self, prefix, timeout=20):
+    def get_reachability(self, prefix, timeout=20):
         version = netaddr.IPNetwork(prefix).version
         addr = prefix.split('/')[0]
         if version == 4:
@@ -476,8 +542,8 @@ class BGPContainer(Container):
         count = 0
         while True:
             res = self.local(cmd, capture=True)
-            print colors.yellow(res)
-            if '1 packets received' in res and '0% packet loss':
+            print(yellow(res))
+            if ('1 packets received' in res or '1 received' in res) and '0% packet loss' in res:
                 break
             time.sleep(interval)
             count += interval
@@ -490,10 +556,9 @@ class BGPContainer(Container):
         count = 0
         while True:
             state = self.get_neighbor_state(peer)
-            y = colors.yellow
-            print y("{0}'s peer {1} state: {2}".format(self.router_id,
-                                                       peer.router_id,
-                                                       state))
+            print(yellow("{0}'s peer {1} state: {2}".format(self.router_id,
+                                                            peer.router_id,
+                                                            state)))
             if state == expected_state:
                 return
 
@@ -504,11 +569,11 @@ class BGPContainer(Container):
 
     def add_static_route(self, network, next_hop):
         cmd = '/sbin/ip route add {0} via {1}'.format(network, next_hop)
-        self.local(cmd)
+        self.local(cmd, capture=True)
 
     def set_ipv6_forward(self):
         cmd = 'sysctl -w net.ipv6.conf.all.forwarding=1'
-        self.local(cmd)
+        self.local(cmd, capture=True)
 
     def create_config(self):
         raise Exception('implement create_config() method')

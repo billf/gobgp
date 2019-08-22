@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
@@ -29,6 +28,7 @@ from lib.base import (
     BGP_FSM_ACTIVE,
     BGP_FSM_ESTABLISHED,
     wait_for_completion,
+    local,
 )
 from lib.gobgp import GoBGPContainer
 
@@ -125,7 +125,7 @@ class GoBGPTestBase(unittest.TestCase):
         wait_for_completion(lambda: len(self.g5.get_global_rib()) == 1)
 
     def test_06_graceful_restart(self):
-        self.g1.graceful_restart()
+        self.g1.stop_gobgp()
         self.g3.wait_for(expected_state=BGP_FSM_ACTIVE, peer=self.g1)
 
         wait_for_completion(lambda: len(self.g3.get_global_rib(rf="vpnv4")) == 2)
@@ -138,7 +138,7 @@ class GoBGPTestBase(unittest.TestCase):
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

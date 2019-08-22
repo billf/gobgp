@@ -13,19 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
 
 from lib import base
-from lib.base import BGP_FSM_ESTABLISHED
+from lib.base import BGP_FSM_ESTABLISHED, local
 from lib.gobgp import GoBGPContainer
 from lib.exabgp import ExaBGPContainer
 
@@ -68,9 +67,9 @@ class GoBGPTestBase(unittest.TestCase):
 
         # Confirm the path is added
         dests = self.g1.get_global_rib()
-        self.assertTrue(len(dests) == 1)
+        self.assertEqual(len(dests), 1)
         routes = dests[0]['paths']
-        self.assertTrue(len(routes) == 1)
+        self.assertEqual(len(routes), 1)
 
         # Confirm the attribute 'AGGREGATOR(type=7)' is discarded
         for d in routes[0]['attrs']:
@@ -94,14 +93,14 @@ class GoBGPTestBase(unittest.TestCase):
 
         # Confirm the number of path in RIB is only one
         dests = self.g1.get_global_rib()
-        self.assertTrue(len(dests) == 1)
-        self.assertTrue(dests[0]['paths'][0]['nlri']['prefix'] == '20.0.0.0/24')
+        self.assertEqual(len(dests), 1)
+        self.assertEqual(dests[0]['paths'][0]['nlri']['prefix'], '20.0.0.0/24')
 
 
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

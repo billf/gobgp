@@ -13,19 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
 
 from lib import base
-from lib.base import BGP_FSM_ESTABLISHED
+from lib.base import BGP_FSM_ESTABLISHED, local
 from lib.gobgp import GoBGPContainer
 
 
@@ -61,7 +60,7 @@ class GoBGPTestBase(unittest.TestCase):
 
         time.sleep(initial_wait_time)
 
-        for cli in cls.clients.itervalues():
+        for cli in cls.clients.values():
             g1.add_peer(cli, is_rs_client=True, passwd='passwd', passive=True, prefix_limit=10)
             cli.add_peer(g1, passwd='passwd')
 
@@ -69,7 +68,7 @@ class GoBGPTestBase(unittest.TestCase):
 
     # test each neighbor state is turned establish
     def test_01_neighbor_established(self):
-        for cli in self.clients.itervalues():
+        for cli in self.clients.values():
             self.gobgp.wait_for(expected_state=BGP_FSM_ESTABLISHED, peer=cli)
 
     def test_02_softresetin_test1(self):
@@ -88,14 +87,15 @@ class GoBGPTestBase(unittest.TestCase):
 
         pol0 = {'name': 'pol0', 'statements': [st0]}
 
-        _filename = g1.add_policy(pol0, g3, 'in', 'reject')
+        _filename = g1.add_policy(pol0, g3, 'import', 'reject')
 
         g3.add_route('10.0.10.0/24')
         g3.add_route('10.0.20.0/24')
 
         time.sleep(1)
 
-        num = g2.get_neighbor(g1)['state']['messages']['received']['update']
+        num = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
+        num = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
 
         ps0 = {'prefix-set-name': 'ps0', 'prefix-list': [p1]}
         g1.set_prefix_set(ps0)
@@ -105,15 +105,15 @@ class GoBGPTestBase(unittest.TestCase):
 
         time.sleep(1)
 
-        num2 = g2.get_neighbor(g1)['state']['messages']['received']['update']
-        self.assertTrue((num + 1) == num2)
+        num2 = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
+        self.assertEqual((num + 1), num2)
 
         g3.softreset(g1, type='out')
 
         time.sleep(1)
 
-        num3 = g2.get_neighbor(g1)['state']['messages']['received']['update']
-        self.assertTrue(num2 == num3)
+        num3 = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
+        self.assertEqual(num2, num3)
 
     def test_03_softresetin_test2(self):
         g1 = self.gobgp
@@ -122,21 +122,21 @@ class GoBGPTestBase(unittest.TestCase):
         g2.add_route('10.0.10.0/24')
         time.sleep(1)
 
-        num = g2.get_neighbor(g1)['state']['messages']['received']['update']
+        num = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
         time.sleep(3)
 
         g1.local('gobgp n all softresetin')
         time.sleep(3)
 
-        num1 = g2.get_neighbor(g1)['state']['messages']['received']['update']
+        num1 = g2.get_neighbor(g1)['state']['messages']['received'].get('update', 0)
 
-        self.assertTrue(num == num1)
+        self.assertEqual(num, num1)
 
 
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 from itertools import combinations
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
@@ -29,6 +28,7 @@ from lib import base
 from lib.base import (
     BGP_FSM_ESTABLISHED,
     BGP_ATTR_TYPE_EXTENDED_COMMUNITIES,
+    local,
 )
 from lib.gobgp import GoBGPContainer
 
@@ -80,14 +80,14 @@ class GoBGPTestBase(unittest.TestCase):
 
     def test_02_add_evpn_route(self):
         self.g1.local('gobgp global rib add '
-                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 1000 1000 '
+                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 esi AS 1 1 1 etag 1000 label 1000 '
                       'rd 10:10 rt 10:10')
         grib = self.g1.get_global_rib(rf='evpn')
-        self.assertTrue(len(grib) == 1)
+        self.assertEqual(len(grib), 1)
         dst = grib[0]
-        self.assertTrue(len(dst['paths']) == 1)
+        self.assertEqual(len(dst['paths']), 1)
         path = dst['paths'][0]
-        self.assertTrue(path['nexthop'] == '0.0.0.0')
+        self.assertEqual(path['nexthop'], '0.0.0.0')
 
         interval = 1
         timeout = int(30 / interval)
@@ -101,9 +101,9 @@ class GoBGPTestBase(unittest.TestCase):
                 time.sleep(interval)
                 continue
 
-            self.assertTrue(len(grib) == 1)
+            self.assertEqual(len(grib), 1)
             dst = grib[0]
-            self.assertTrue(len(dst['paths']) == 1)
+            self.assertEqual(len(dst['paths']), 1)
             path = dst['paths'][0]
             n_addrs = [i[1].split('/')[0] for i in self.g1.ip_addrs]
             self.assertTrue(path['nexthop'] in n_addrs)
@@ -111,41 +111,41 @@ class GoBGPTestBase(unittest.TestCase):
 
     def test_03_check_mac_mobility(self):
         self.g2.local('gobgp global rib add '
-                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 1000 1000 '
+                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 esi AS 2 1 1 etag 1000 label 1000 '
                       'rd 10:20 rt 10:10')
 
         time.sleep(3)
 
         grib = self.g1.get_global_rib(rf='evpn')
-        self.assertTrue(len(grib) == 1)
+        self.assertEqual(len(grib), 1)
         dst = grib[0]
-        self.assertTrue(len(dst['paths']) == 1)
+        self.assertEqual(len(dst['paths']), 1)
         path = dst['paths'][0]
         n_addrs = [i[1].split('/')[0] for i in self.g2.ip_addrs]
         self.assertTrue(path['nexthop'] in n_addrs)
-        self.assertTrue(get_mac_mobility_sequence(path['attrs']) == 0)
+        self.assertEqual(get_mac_mobility_sequence(path['attrs']), 0)
 
     def test_04_check_mac_mobility_again(self):
         self.g1.local('gobgp global rib add '
-                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 1000 1000 '
+                      '-a evpn macadv 11:22:33:44:55:66 10.0.0.1 esi AS 3 1 1 etag 1000 label 1000 '
                       'rd 10:20 rt 10:10')
 
         time.sleep(3)
 
         grib = self.g2.get_global_rib(rf='evpn')
-        self.assertTrue(len(grib) == 1)
+        self.assertEqual(len(grib), 1)
         dst = grib[0]
-        self.assertTrue(len(dst['paths']) == 1)
+        self.assertEqual(len(dst['paths']), 1)
         path = dst['paths'][0]
         n_addrs = [i[1].split('/')[0] for i in self.g1.ip_addrs]
         self.assertTrue(path['nexthop'] in n_addrs)
-        self.assertTrue(get_mac_mobility_sequence(path['attrs']) == 1)
+        self.assertEqual(get_mac_mobility_sequence(path['attrs']), 1)
 
 
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

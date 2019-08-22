@@ -5,7 +5,7 @@ openconfig yang files (see https://github.com/openconfig/public).
 
 Prerequisites
 =============
-Please confirm $GOPATH is configured before the following steps.
+Please confirm $GOPATH is configured before the following steps. Note that you need to use Python 2.
 
 How to use
 ==========
@@ -37,4 +37,4 @@ Generate config/bgp_configs.go from yang files::
    $HOME/public/release/models/bgp/openconfig-bgp.yang \
    $HOME/public/release/models/policy/openconfig-routing-policy.yang \
    $GOBGP_PATH/tools/pyang_plugins/gobgp.yang \
-   | gofmt > $GOBGP_PATH/config/bgp_configs.go
+   | gofmt > $GOBGP_PATH/internal/pkg/config/bgp_configs.go

@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import sys
 import time
 import unittest
 import inspect
 
-from fabric.api import local
 import nose
 from nose.tools import (
     assert_true,
@@ -35,6 +34,7 @@ from lib.base import (
     BGP_FSM_ESTABLISHED,
     BGP_ATTR_TYPE_COMMUNITIES,
     BGP_ATTR_TYPE_EXTENDED_COMMUNITIES,
+    local,
 )
 from lib.gobgp import GoBGPContainer
 from lib.quagga import QuaggaBGPContainer
@@ -52,7 +52,7 @@ def register_scenario(cls):
 
 
 def lookup_scenario(name):
-    for value in _SCENARIOS.values():
+    for value in list(_SCENARIOS.values()):
         if value.__name__ == name:
             return value
     return None
@@ -822,9 +822,9 @@ class ImportPolicyAsPathLengthCondition(object):
         g1.local('gobgp neighbor {0} policy import add policy0'.format(g1.peers[q2]['neigh_addr'].split('/')[0]))
 
         # this will be blocked
-        e1.add_route('192.168.100.0/24', aspath=range(e1.asn, e1.asn - 10, -1))
+        e1.add_route('192.168.100.0/24', aspath=list(range(e1.asn, e1.asn - 10, -1)))
         # this will pass
-        e1.add_route('192.168.200.0/24', aspath=range(e1.asn, e1.asn - 8, -1))
+        e1.add_route('192.168.200.0/24', aspath=list(range(e1.asn, e1.asn - 8, -1)))
 
         for c in [e1, q1, q2]:
             g1.wait_for(BGP_FSM_ESTABLISHED, c)
@@ -878,9 +878,9 @@ class ImportPolicyAsPathCondition(object):
         g1.local('gobgp neighbor {0} policy import add policy0'.format(g1.peers[q2]['neigh_addr'].split('/')[0]))
 
         # this will be blocked
-        e1.add_route('192.168.100.0/24', aspath=range(e1.asn, e1.asn - 10, -1))
+        e1.add_route('192.168.100.0/24', aspath=list(range(e1.asn, e1.asn - 10, -1)))
         # this will pass
-        e1.add_route('192.168.200.0/24', aspath=range(e1.asn - 1, e1.asn - 10, -1))
+        e1.add_route('192.168.200.0/24', aspath=list(range(e1.asn - 1, e1.asn - 10, -1)))
 
         for c in [e1, q1, q2]:
             g1.wait_for(BGP_FSM_ESTABLISHED, c)
@@ -2120,205 +2120,6 @@ class ExportPolicyMedSub(object):
 
 
 @register_scenario
-class InPolicyReject(object):
-    """
-    No.31 in-policy reject test
-                                      ----------------
-    e1 ->r1(community=65100:10) ->  x | -> q1-rib -> | -> r2 --> q1
-         r2(192.168.10.0/24)    ->  o |              |
-                                      | -> q2-rib -> | -> r2 --> q2
-                                      ----------------
-    """
-    @staticmethod
-    def boot(env):
-        lookup_scenario('ImportPolicy').boot(env)
-
-    @staticmethod
-    def setup(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-
-        g1.local('gobgp policy community add cs0 65100:10')
-        g1.local('gobgp policy statement st0 add condition community cs0')
-        g1.local('gobgp policy statement st0 add action reject')
-        g1.local('gobgp policy add policy0 st0')
-        g1.local('gobgp neighbor {0} policy in add policy0'.format(g1.peers[e1]['neigh_addr'].split('/')[0]))
-
-        e1.add_route('192.168.100.0/24', community=['65100:10'])
-        e1.add_route('192.168.10.0/24')
-
-        for c in [e1, q1, q2]:
-            g1.wait_for(BGP_FSM_ESTABLISHED, c)
-
-    @staticmethod
-    def check(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-        wait_for(lambda: len(g1.get_adj_rib_in(e1)) == 2)
-        wait_for(lambda: len(g1.get_local_rib(q1)) == 1)
-        wait_for(lambda: len(g1.get_adj_rib_out(q1)) == 1)
-        wait_for(lambda: len(q1.get_global_rib()) == 1)
-        wait_for(lambda: len(g1.get_local_rib(q2)) == 1)
-        wait_for(lambda: len(g1.get_adj_rib_out(q2)) == 1)
-        wait_for(lambda: len(q2.get_global_rib()) == 1)
-
-    @staticmethod
-    def executor(env):
-        lookup_scenario("InPolicyReject").boot(env)
-        lookup_scenario("InPolicyReject").setup(env)
-        lookup_scenario("InPolicyReject").check(env)
-
-
-@register_scenario
-class InPolicyAccept(object):
-    """
-    No.32 in-policy accept test
-                                      ----------------
-    e1 ->r1(community=65100:10) ->  x | -> q1-rib -> | -> r2 --> q1
-         r2(192.168.10.0/24)    ->  o |              |
-                                      | -> q2-rib -> | -> r2 --> q2
-                                      ----------------
-    """
-    @staticmethod
-    def boot(env):
-        lookup_scenario('ImportPolicy').boot(env)
-
-    @staticmethod
-    def setup(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-
-        g1.local('gobgp policy community add cs0 65100:10')
-        g1.local('gobgp policy statement st0 add condition community cs0')
-        g1.local('gobgp policy statement st0 add action accept')
-        g1.local('gobgp policy add policy0 st0')
-        g1.local('gobgp neighbor {0} policy in add policy0 default reject'.format(g1.peers[e1]['neigh_addr'].split('/')[0]))
-
-        e1.add_route('192.168.100.0/24', community=['65100:10'])
-        e1.add_route('192.168.10.0/24')
-
-        for c in [e1, q1, q2]:
-            g1.wait_for(BGP_FSM_ESTABLISHED, c)
-
-    @staticmethod
-    def check(env):
-        lookup_scenario('InPolicyReject').check(env)
-
-    @staticmethod
-    def executor(env):
-        lookup_scenario("InPolicyAccept").boot(env)
-        lookup_scenario("InPolicyAccept").setup(env)
-        lookup_scenario("InPolicyAccept").check(env)
-
-
-@register_scenario
-class InPolicyUpdate(object):
-    """
-    No.35 in-policy update test
-    r1:192.168.2.0
-    r2:192.168.20.0
-    r3:192.168.200.0
-                      -------------------------------------
-                      | q1                                |
-    e1 ->(r1,r2,r3)-> | ->(r1)-> rib ->(r1)-> adj-rib-out | ->(r1)-> q1
-                      |                                   |
-                      | q2                                |
-                      | ->(r1)-> rib ->(r1)-> adj-rib-out | ->(r1)-> q2
-                      -------------------------------------
-                 |
-      update distribute policy
-                 |
-                 V
-                      -------------------------------------------
-                      | q1                                      |
-    e1 ->(r1,r2,r3)-> | ->(r1,r2)-> rib ->(r1,r2)-> adj-rib-out | ->(r1,r2)-> q1
-                      |                                         |
-                      | q2                                      |
-                      | ->(r1,r3)-> rib ->(r1,r3)-> adj-rib-out | ->(r1,r3)-> q2
-                      -------------------------------------------
-    """
-    @staticmethod
-    def boot(env):
-        lookup_scenario('ImportPolicy').boot(env)
-
-    @staticmethod
-    def setup(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-
-        g1.local('gobgp policy prefix add ps0 192.168.20.0/24')
-        g1.local('gobgp policy prefix add ps0 192.168.200.0/24')
-        g1.local('gobgp policy neighbor add ns0 {0}'.format(g1.peers[e1]['neigh_addr'].split('/')[0]))
-        g1.local('gobgp policy statement st0 add condition prefix ps0')
-        g1.local('gobgp policy statement st0 add condition neighbor ns0')
-        g1.local('gobgp policy statement st0 add action reject')
-        g1.local('gobgp policy add policy0 st0')
-        g1.local('gobgp neighbor {0} policy in add policy0'.format(g1.peers[e1]['neigh_addr'].split('/')[0]))
-
-        e1.add_route('192.168.2.0/24')
-        e1.add_route('192.168.20.0/24')
-        e1.add_route('192.168.200.0/24')
-
-        for c in [e1, q1, q2]:
-            g1.wait_for(BGP_FSM_ESTABLISHED, c)
-
-    @staticmethod
-    def check(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-        wait_for(lambda: len(g1.get_adj_rib_in(e1)) == 3)
-        wait_for(lambda: len(g1.get_local_rib(q1)) == 1)
-        wait_for(lambda: len(g1.get_adj_rib_out(q1)) == 1)
-        wait_for(lambda: len(q1.get_global_rib()) == 1)
-        wait_for(lambda: len(g1.get_local_rib(q2)) == 1)
-        wait_for(lambda: len(g1.get_adj_rib_out(q2)) == 1)
-        wait_for(lambda: len(q2.get_global_rib()) == 1)
-
-    @staticmethod
-    def setup2(env):
-        g1 = env.g1
-        e1 = env.e1
-        # q1 = env.q1
-        # q2 = env.q2
-        g1.clear_policy()
-
-        g1.local('gobgp policy prefix del ps0 192.168.200.0/24')
-        g1.softreset(e1)
-
-    @staticmethod
-    def check2(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-        wait_for(lambda: len(g1.get_adj_rib_in(e1)) == 3)
-        wait_for(lambda: len(g1.get_local_rib(q1)) == 2)
-        wait_for(lambda: len(g1.get_adj_rib_out(q1)) == 2)
-        wait_for(lambda: len(q1.get_global_rib()) == 2)
-        wait_for(lambda: len(g1.get_local_rib(q2)) == 2)
-        wait_for(lambda: len(g1.get_adj_rib_out(q2)) == 2)
-        wait_for(lambda: len(q2.get_global_rib()) == 2)
-
-    @staticmethod
-    def executor(env):
-        lookup_scenario("InPolicyUpdate").boot(env)
-        lookup_scenario("InPolicyUpdate").setup(env)
-        lookup_scenario("InPolicyUpdate").check(env)
-        lookup_scenario("InPolicyUpdate").setup2(env)
-        lookup_scenario("InPolicyUpdate").check2(env)
-
-
-@register_scenario
 class ExportPolicyAsPathPrepend(object):
     """
     No.37 aspath prepend action export
@@ -2623,52 +2424,6 @@ class ImportPolicyExCommunityTargetCondition(object):
         lookup_scenario("ImportPolicyExCommunityTargetCondition").check(env)
 
 
-@register_scenario
-class InPolicyPrefixCondition(object):
-    """
-    No.42 prefix only condition accept in
-                                      -----------------
-    e1 ->r1(192.168.100.0/24)   ->  o | -> q1-rib ->  | -> r2 --> q1
-         r2(192.168.10.0/24)    ->  x |               |
-                                      | -> q2-rib ->  | -> r2 --> q2
-                                      -----------------
-    """
-    @staticmethod
-    def boot(env):
-        lookup_scenario('ImportPolicy').boot(env)
-
-    @staticmethod
-    def setup(env):
-        g1 = env.g1
-        e1 = env.e1
-        q1 = env.q1
-        q2 = env.q2
-
-        g1.local('gobgp policy prefix add ps0 192.168.10.0/24')
-        g1.local('gobgp policy statement st0 add condition prefix ps0')
-        g1.local('gobgp policy statement st0 add action reject')
-        g1.local('gobgp policy add policy0 st0')
-        g1.local('gobgp neighbor {0} policy in add policy0'.format(g1.peers[e1]['neigh_addr'].split('/')[0]))
-
-        # this will be blocked
-        e1.add_route('192.168.100.0/24')
-        # this will pass
-        e1.add_route('192.168.10.0/24')
-
-        for c in [e1, q1, q2]:
-            g1.wait_for(BGP_FSM_ESTABLISHED, c)
-
-    @staticmethod
-    def check(env):
-        lookup_scenario('InPolicyReject').check(env)
-
-    @staticmethod
-    def executor(env):
-        lookup_scenario("InPolicyPrefixCondition").boot(env)
-        lookup_scenario("InPolicyPrefixCondition").setup(env)
-        lookup_scenario("InPolicyPrefixCondition").check(env)
-
-
 def ext_community_exists(path, extcomm):
     typ = extcomm.split(':')[0]
     value = ':'.join(extcomm.split(':')[1:])
@@ -2932,14 +2687,14 @@ class TestGoBGPBase(unittest.TestCase):
         cls.parser_option = parser_option
         cls.executors = []
         if idx == 0:
-            print 'unset test-index. run all test sequential'
-            for _, v in _SCENARIOS.items():
+            print('unset test-index. run all test sequential')
+            for _, v in list(_SCENARIOS.items()):
                 for k, m in inspect.getmembers(v, inspect.isfunction):
                     if k == 'executor':
                         cls.executor = m
                 cls.executors.append(cls.executor)
         elif idx not in _SCENARIOS:
-            print 'invalid test-index. # of scenarios: {0}'.format(len(_SCENARIOS))
+            print('invalid test-index. # of scenarios: {0}'.format(len(_SCENARIOS)))
             sys.exit(1)
         else:
             for k, m in inspect.getmembers(_SCENARIOS[idx], inspect.isfunction):
@@ -2955,7 +2710,7 @@ class TestGoBGPBase(unittest.TestCase):
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

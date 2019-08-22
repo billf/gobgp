@@ -13,19 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
+
 
 import sys
 import time
 import unittest
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
 
 from lib import base
-from lib.base import BGP_FSM_ESTABLISHED
+from lib.base import BGP_FSM_ESTABLISHED, local
 from lib.gobgp import GoBGPContainer
 from lib.quagga import QuaggaBGPContainer
 
@@ -51,7 +51,7 @@ class GoBGPTestBase(unittest.TestCase):
         #                  | | +-----+ |     | +-----+ | |
         #                  | +---------+     +---------+ |
         #                  +-----------------------------+
-        
+
         gobgp_ctn_image_name = parser_option.gobgp_image
         base.TEST_PREFIX = parser_option.test_prefix
 
@@ -107,12 +107,12 @@ class GoBGPTestBase(unittest.TestCase):
         time.sleep(self.initial_wait_time)
 
         routes = []
-        for i in range(60):
+        for _ in range(60):
             routes = self.quaggas['q1'].get_global_rib('10.0.0.0/24')
-            if len(routes) > 0:
+            if routes:
                 break
             time.sleep(1)
-        self.failIf(len(routes) == 0)
+        self.assertFalse(len(routes) == 0)
 
         # Confirm AS_PATH in confederation is removed
         self._check_global_rib_first(self.quaggas['q1'], '10.0.0.0/24', [30, 20, 21])
@@ -126,15 +126,14 @@ class GoBGPTestBase(unittest.TestCase):
         self.quaggas['q1'].add_route('10.0.0.0/24')
 
         routes = []
-        for i in range(60):
+        for _ in range(60):
             routes = self.gobgp.get_global_rib('10.0.0.0/24')
-            print(routes)
             if len(routes) == 1:
                 if len(routes[0]['paths']) == 2:
                     break
             time.sleep(1)
-        self.failIf(len(routes) != 1)
-        self.failIf(len(routes[0]['paths']) != 2)
+        self.assertFalse(len(routes) != 1)
+        self.assertFalse(len(routes[0]['paths']) != 2)
 
         # In g1, there are two routes to 10.0.0.0/24
         # confirm the route from q1 is selected as the best path
@@ -150,7 +149,7 @@ class GoBGPTestBase(unittest.TestCase):
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],

@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
+
 
 import unittest
 import sys
 import time
 
-from fabric.api import local
 import nose
 
 from lib.noseplugin import OptionParser, parser_option
@@ -28,6 +27,7 @@ from lib import base
 from lib.base import (
     BGP_FSM_IDLE,
     BGP_FSM_ESTABLISHED,
+    local,
 )
 from lib.gobgp import GoBGPContainer
 from lib.exabgp import ExaBGPContainer
@@ -53,16 +53,7 @@ class GoBGPTestBase(unittest.TestCase):
             for i in range(4)]
         ctns = [g1] + rs_clients
 
-        # advertise a route from route-server-clients
-        for idx, rs_client in enumerate(rs_clients):
-            route = '10.0.{0}.0/24'.format(idx + 1)
-            rs_client.add_route(route)
-            if idx < 2:
-                route = '10.0.10.0/24'
-            rs_client.add_route(route)
-
         initial_wait_time = max(ctn.run() for ctn in ctns)
-
         time.sleep(initial_wait_time)
 
         for i, rs_client in enumerate(rs_clients):
@@ -72,16 +63,24 @@ class GoBGPTestBase(unittest.TestCase):
                 as2 = True
             rs_client.add_peer(g1, as2=as2)
 
+        # advertise a route from route-server-clients
+        for idx, rs_client in enumerate(rs_clients):
+            route = '10.0.{0}.0/24'.format(idx + 1)
+            rs_client.add_route(route)
+            if idx < 2:
+                route = '10.0.10.0/24'
+            rs_client.add_route(route)
+
         cls.gobgp = g1
         cls.quaggas = {x.name: x for x in rs_clients}
 
     # test each neighbor state is turned establish
     def test_01_neighbor_established(self):
-        for q in self.quaggas.itervalues():
+        for q in self.quaggas.values():
             self.gobgp.wait_for(expected_state=BGP_FSM_ESTABLISHED, peer=q)
 
     def test_02_check_gobgp_local_rib(self):
-        for rs_client in self.quaggas.itervalues():
+        for rs_client in self.quaggas.values():
             done = False
             for _ in range(self.retry_limit):
                 if done:
@@ -95,7 +94,7 @@ class GoBGPTestBase(unittest.TestCase):
                     time.sleep(self.wait_per_retry)
                     continue
 
-                self.assertTrue(len(local_rib) == 4)
+                self.assertEqual(len(local_rib), 4)
                 done = True
 
             if done:
@@ -112,7 +111,7 @@ class GoBGPTestBase(unittest.TestCase):
 if __name__ == '__main__':
     output = local("which docker 2>&1 > /dev/null ; echo $?", capture=True)
     if int(output) is not 0:
-        print "docker not found"
+        print("docker not found")
         sys.exit(1)
 
     nose.main(argv=sys.argv, addplugins=[OptionParser()],
